@@ -1,4 +1,4 @@
-const STORAGE_KEY = "ielts-vocab-trainer-progress-v4";
+const STORAGE_KEY = "ielts-vocab-trainer-progress-v5";
 const DEFAULT_SETTINGS = {
   targetDays: 45,
   dailyCap: 80,
@@ -6,6 +6,7 @@ const DEFAULT_SETTINGS = {
   mode: "mixed",
   tier: "all",
   timerSeconds: 12,
+  ratio: "1:2",
 };
 
 const state = {
@@ -32,6 +33,10 @@ const els = {
   studyPage: document.querySelector("#study-page"),
   vocabPage: document.querySelector("#vocab-page"),
   summaryPage: document.querySelector("#summary-page"),
+  settingsSheet: document.querySelector("#settings-sheet"),
+  settingsBackdrop: document.querySelector("#settings-backdrop"),
+  openSettings: document.querySelector("#open-settings"),
+  closeSettings: document.querySelector("#close-settings"),
   backHome: document.querySelector("#back-home"),
   backHomeFromVocab: document.querySelector("#back-home-from-vocab"),
   backHomeFromSummary: document.querySelector("#back-home-from-summary"),
@@ -42,18 +47,18 @@ const els = {
   dailyPlan: document.querySelector("#daily-plan"),
   planInsights: document.querySelector("#plan-insights"),
   modeSelect: document.querySelector("#mode-select"),
-  newCountInput: document.querySelector("#new-count-input"),
   tierSelect: document.querySelector("#tier-select"),
   timerSelect: document.querySelector("#timer-select"),
   targetDaysInput: document.querySelector("#target-days-input"),
   dailyCapInput: document.querySelector("#daily-cap-input"),
   todayTargetInput: document.querySelector("#today-target-input"),
+  ratioSelect: document.querySelector("#ratio-select"),
   startStudy: document.querySelector("#start-study"),
-  startSpeed: document.querySelector("#start-speed"),
   resetProgress: document.querySelector("#reset-progress"),
   cardEmpty: document.querySelector("#card-empty"),
   studyCard: document.querySelector("#study-card"),
   taskChip: document.querySelector("#task-chip"),
+  newOldChip: document.querySelector("#new-old-chip"),
   timerChip: document.querySelector("#timer-chip"),
   queueProgress: document.querySelector("#queue-progress"),
   questionMain: document.querySelector("#question-main"),
@@ -63,6 +68,7 @@ const els = {
   resultBox: document.querySelector("#result-box"),
   showAnswer: document.querySelector("#show-answer"),
   nextCard: document.querySelector("#next-card"),
+  loadMoreNew: document.querySelector("#load-more-new"),
   vocabList: document.querySelector("#vocab-list"),
   vocabSearch: document.querySelector("#vocab-search"),
   vocabCount: document.querySelector("#vocab-count"),
@@ -94,6 +100,11 @@ function formatSynonyms(entry) {
 
 function importanceText(entry) {
   return entry.importanceRank ? `第${entry.importanceRank}个` : `扩展词 ${entry.bookOrder}`;
+}
+
+function parseRatio(value) {
+  const [newPart, reviewPart] = String(value || "1:2").split(":").map(Number);
+  return { newPart: newPart || 1, reviewPart: reviewPart || 2 };
 }
 
 function getEntryProgress(entryId) {
@@ -179,10 +190,16 @@ async function pushRemoteState() {
 }
 
 function showPage(page) {
-  [els.homePage, els.studyPage, els.vocabPage, els.summaryPage].forEach((view) => {
-    view.classList.add("hidden");
-  });
+  [els.homePage, els.studyPage, els.vocabPage, els.summaryPage].forEach((view) => view.classList.add("hidden"));
   page.classList.remove("hidden");
+}
+
+function openSettings() {
+  els.settingsSheet.classList.remove("hidden");
+}
+
+function closeSettings() {
+  els.settingsSheet.classList.add("hidden");
 }
 
 function createStatCard(label, value, detail) {
@@ -261,53 +278,58 @@ function pickMode(entry, selectedMode) {
   return shuffle(modes)[0];
 }
 
-function buildCard(entry, selectedMode, speedMode = false) {
+function classifyEntry(entry) {
+  return getEntryProgress(entry.id).seen ? "复习词" : "新词";
+}
+
+function buildCard(entry, selectedMode) {
   const mode = pickMode(entry, selectedMode);
 
   if (mode === "en_to_zh") {
-    const answer = formatMeaning(entry);
     return {
       entry,
       mode,
+      kind: classifyEntry(entry),
       prompt: entry.word,
       subPrompt: "看到英文，快速识别中文含义。",
       metaBefore: `重要排序：${importanceText(entry)}`,
       metaAfter: `同义替换：${formatSynonyms(entry)}`,
-      choices: shuffle([answer, ...pickDistractors(entry, 3, formatMeaning)]).slice(0, 4),
-      answer,
+      answer: formatMeaning(entry),
+      choices: shuffle([formatMeaning(entry), ...pickDistractors(entry, 3, formatMeaning)]).slice(0, 4),
     };
   }
 
   if (mode === "zh_to_en") {
-    const answer = normalizeText(entry.word);
     return {
       entry,
       mode,
+      kind: classifyEntry(entry),
       prompt: formatMeaning(entry),
       subPrompt: "看到中文，快速选出英文词。",
       metaBefore: `重要排序：${importanceText(entry)}`,
       metaAfter: `同义替换：${formatSynonyms(entry)}`,
-      choices: shuffle([answer, ...pickDistractors(entry, 3, (item) => item.word)]).slice(0, 4),
-      answer,
+      answer: normalizeText(entry.word),
+      choices: shuffle([normalizeText(entry.word), ...pickDistractors(entry, 3, (item) => item.word)]).slice(0, 4),
     };
   }
 
-  const answer = normalizeText((entry.synonyms || [entry.word])[0]);
+  const synonymAnswer = normalizeText((entry.synonyms || [entry.word])[0]);
   const synonymPool = state.dataset.entries
     .flatMap((item) => (item.synonyms || []).slice(0, 2))
     .map(normalizeText)
     .filter(Boolean)
-    .filter((value) => !(entry.synonyms || []).map(normalizeText).includes(value) && value !== answer);
+    .filter((value) => !(entry.synonyms || []).map(normalizeText).includes(value) && value !== synonymAnswer);
 
   return {
     entry,
     mode: "synonym",
+    kind: classifyEntry(entry),
     prompt: entry.word,
-    subPrompt: speedMode ? "限时选择最贴近的同义替换。" : "从替换表达中找出最贴近这个词的一项。",
+    subPrompt: "从替换表达中找出最贴近这个词的一项。",
     metaBefore: `重要排序：${importanceText(entry)}`,
     metaAfter: `中文：${formatMeaning(entry)}`,
-    choices: shuffle([answer, ...shuffle(synonymPool).slice(0, 3)]).slice(0, 4),
-    answer,
+    answer: synonymAnswer,
+    choices: shuffle([synonymAnswer, ...shuffle(synonymPool).slice(0, 3)]).slice(0, 4),
   };
 }
 
@@ -329,7 +351,6 @@ function recordResult(correct) {
   progress.lastResult = correct ? "correct" : "wrong";
   progress.lastReviewedAt = new Date().toISOString();
   progress.history.push({ date: todayKey(), correct });
-
   if (correct) {
     progress.correct += 1;
     progress.streak += 1;
@@ -348,7 +369,7 @@ function recordResult(correct) {
   progress.dueDate = dueDate.toISOString().slice(0, 10);
 
   if (!correct) {
-    const replay = buildCard(state.currentCard.entry, state.currentCard.mode, state.speedMode);
+    const replay = buildCard(state.currentCard.entry, state.currentCard.mode);
     state.queue.splice(Math.min(state.currentIndex + 2, state.queue.length), 0, replay);
   }
 
@@ -400,15 +421,12 @@ function startTimer(seconds) {
     els.timerChip.textContent = "不限时";
     return;
   }
-
   state.timerRemaining = seconds;
   els.timerChip.textContent = `${state.timerRemaining} 秒`;
   state.timerId = setInterval(() => {
     state.timerRemaining -= 1;
     els.timerChip.textContent = `${Math.max(state.timerRemaining, 0)} 秒`;
-    if (state.timerRemaining <= 0) {
-      revealAnswer(state.selectedAnswer, true);
-    }
+    if (state.timerRemaining <= 0) revealAnswer(state.selectedAnswer, true);
   }, 1000);
 }
 
@@ -419,20 +437,21 @@ function renderCurrentCard() {
     state.currentCard = null;
     els.cardEmpty.classList.remove("hidden");
     els.studyCard.classList.add("hidden");
-    els.cardEmpty.innerHTML = "<h2>今日任务完成</h2><p>你已经完成当前队列。可以返回主页查看今日汇总，或者再开一轮。</p>";
+    els.loadMoreNew.hidden = false;
     return;
   }
 
   state.currentCard = card;
   state.selectedAnswer = null;
   state.questionResolved = false;
-
   els.cardEmpty.classList.add("hidden");
+  els.loadMoreNew.hidden = true;
   els.studyCard.classList.remove("hidden");
   els.resultBox.classList.add("hidden");
   els.resultBox.classList.remove("correct-result", "wrong-result");
   els.resultBox.innerHTML = "";
   els.taskChip.textContent = card.mode === "en_to_zh" ? "英文识义" : card.mode === "zh_to_en" ? "中文选词" : "同义替换";
+  els.newOldChip.textContent = card.kind;
   els.queueProgress.textContent = `第 ${state.currentIndex + 1} / ${state.queue.length} 题`;
   els.questionMain.textContent = normalizeText(card.prompt);
   els.questionSub.textContent = card.subPrompt;
@@ -453,15 +472,30 @@ function renderCurrentCard() {
     els.optionList.append(button);
   });
 
-  startTimer(Number(els.timerSelect.value));
+  startTimer(Number(state.settings.timerSeconds));
 }
 
-function buildStudyQueue({ mode, newCount, tier, speedMode }) {
-  const reviewCap = Math.max(10, Math.floor(Number(state.settings.dailyCap || 80) * 0.6));
-  const reviewList = dueEntries(tier).slice(0, reviewCap);
-  const newList = newEntries(newCount, tier);
-  return weightedSample([...reviewList, ...newList], reviewList.length + newList.length).map((entry) =>
-    buildCard(entry, mode, speedMode)
+function getTodayTargets() {
+  const dueList = dueEntries(state.settings.tier);
+  const ratio = parseRatio(state.settings.ratio);
+  const totalParts = ratio.newPart + ratio.reviewPart;
+  const dailyCap = Number(state.settings.dailyCap);
+  const reviewTargetByRatio = Math.floor((dailyCap * ratio.reviewPart) / totalParts);
+  const reviewTarget = Math.min(dueList.length, reviewTargetByRatio);
+  const newTarget = Math.min(Number(state.settings.todayNew), Math.max(5, dailyCap - reviewTarget));
+  return {
+    dueList,
+    reviewTarget,
+    newTarget,
+  };
+}
+
+function buildStudyQueue({ moreNew = false } = {}) {
+  const { dueList, reviewTarget, newTarget } = getTodayTargets();
+  const reviewList = moreNew ? [] : dueList.slice(0, reviewTarget);
+  const freshList = newEntries(newTarget, state.settings.tier);
+  return weightedSample([...reviewList, ...freshList], reviewList.length + freshList.length).map((entry) =>
+    buildCard(entry, state.settings.mode)
   );
 }
 
@@ -476,58 +510,29 @@ function countTodayStats(progress) {
 
 function renderDashboard() {
   const entries = state.dataset.entries;
-  const dueTodayList = dueEntries(state.settings.tier);
+  const { dueList, reviewTarget, newTarget } = getTodayTargets();
   const unseenCount = entries.filter((entry) => !getEntryProgress(entry.id).seen).length;
-  const learnedCount = entries.length - unseenCount;
-  const hardEntries = entries
-    .map((entry) => ({ entry, progress: getEntryProgress(entry.id) }))
-    .filter(({ progress }) => progress.wrong > 0)
-    .sort((a, b) => b.progress.wrong - a.progress.wrong)
-    .slice(0, 4);
 
   els.heroStats.innerHTML = "";
   els.heroStats.append(
-    createStatCard("词库规模", entries.length, "已从 PDF 导入"),
-    createStatCard("今日到期", dueTodayList.length, "优先安排复习"),
-    createStatCard("已学习", learnedCount, "已有学习记录"),
+    createStatCard("今日复习", reviewTarget, dueList.length ? `${dueList.length} 个到期词待复习` : "今天暂无到期复习"),
+    createStatCard("今日新词", newTarget, "今天建议的新词量"),
+    createStatCard("总词库", entries.length, `${entries.length - unseenCount} 个已有学习记录`),
     createStatCard("同步状态", state.sync.status === "cloud" ? "云端" : "本地", state.sync.lastSyncedAt ? `最近同步 ${new Date(state.sync.lastSyncedAt).toLocaleString()}` : "尚未同步"),
   );
 
-  els.summaryGrid.innerHTML = "";
-  els.summaryGrid.append(
-    createStatCard("第1类", entries.filter((entry) => entry.level === 1).length, "最优先"),
-    createStatCard("第2类", entries.filter((entry) => entry.level === 2).length, "重点推进"),
-    createStatCard("第3类", entries.filter((entry) => entry.level === 3).length, "扩展补充"),
-    createStatCard("易错词", hardEntries.length, hardEntries.length ? hardEntries.map((item) => item.entry.word).join(" / ") : "暂时没有"),
-  );
-
-  const reviewTarget = Math.min(dueTodayList.length, Math.floor(Number(state.settings.dailyCap) * 0.6));
-  const newTarget = Number(state.settings.todayNew);
-  const reviewNames = dueTodayList.slice(0, Math.min(8, reviewTarget || 8)).map((entry) => entry.word);
+  const reviewNames = dueList.slice(0, 8).map((entry) => entry.word);
   const newNames = newEntries(Math.min(8, newTarget), state.settings.tier).map((entry) => entry.word);
 
   els.dailyPlan.innerHTML = "";
   [
-    {
-      title: "复习词列表",
-      body: reviewNames.length ? reviewNames.join(" / ") : "今天没有到期复习词。",
-    },
-    {
-      title: "新词列表",
-      body: newNames.length ? newNames.join(" / ") : "今天建议先清复习，再补新词。",
-    },
-    {
-      title: "今天建议",
-      body: `先复习 ${reviewTarget} 个，再学 ${newTarget} 个新词，总量控制在 ${reviewTarget + newTarget} 题左右。`,
-    },
-    {
-      title: "当前重点",
-      body: hardEntries.length ? `优先加练：${hardEntries.map((item) => item.entry.word).join(" / ")}` : "优先把第1类词打牢。",
-    },
+    { title: "今日需复习", body: `${reviewTarget} 个`, extra: reviewNames.length ? reviewNames.join(" / ") : "今天没有到期复习词。" },
+    { title: "今日需背新词", body: `${newTarget} 个`, extra: newNames.length ? newNames.join(" / ") : "今天建议先以复习为主。" },
+    { title: "背诵比例", body: `${state.settings.ratio}`, extra: "按这个比例安排新词与复习" },
   ].forEach((item) => {
     const article = document.createElement("article");
     article.className = "daily-item";
-    article.innerHTML = `<h3>${item.title}</h3><p>${item.body}</p>`;
+    article.innerHTML = `<h3>${item.title}</h3><p>${item.body}</p><p>${item.extra}</p>`;
     els.dailyPlan.append(article);
   });
 }
@@ -538,10 +543,7 @@ function getSevenDayForecast() {
     const day = new Date();
     day.setDate(day.getDate() + offset);
     const key = day.toISOString().slice(0, 10);
-    const count = state.dataset.entries.filter((entry) => {
-      const dueDate = getEntryProgress(entry.id).dueDate;
-      return dueDate === key;
-    }).length;
+    const count = state.dataset.entries.filter((entry) => getEntryProgress(entry.id).dueDate === key).length;
     forecast.push({
       label: day.toLocaleDateString(undefined, { month: "numeric", day: "numeric", weekday: "short" }),
       count,
@@ -552,36 +554,22 @@ function getSevenDayForecast() {
 
 function renderPlanInsights() {
   const unseenCount = state.dataset.entries.filter((entry) => !getEntryProgress(entry.id).seen).length;
-  const targetDays = Number(state.settings.targetDays);
-  const dailyCap = Number(state.settings.dailyCap);
-  const todayNew = Number(state.settings.todayNew);
-  const suggestedNew = Math.max(5, Math.ceil(unseenCount / Math.max(targetDays, 1)));
-  const reviewBacklog = dueEntries(state.settings.tier).length;
+  const ratio = parseRatio(state.settings.ratio);
   const forecast = getSevenDayForecast();
+  const suggestedNew = Math.max(5, Math.ceil(unseenCount / Math.max(Number(state.settings.targetDays), 1)));
+  const todayReviewByRatio = Math.floor((Number(state.settings.dailyCap) * ratio.reviewPart) / (ratio.newPart + ratio.reviewPart));
+  const todayNewByRatio = Number(state.settings.dailyCap) - todayReviewByRatio;
 
   els.planInsights.innerHTML = "";
   [
-    {
-      title: "计划建议",
-      body: `按 ${targetDays} 天完成估算，建议每天新词约 ${suggestedNew} 个。`,
-    },
-    {
-      title: "复习负担",
-      body: `当前有 ${reviewBacklog} 个到期复习词；每日总量上限设为 ${dailyCap}，主要防止复习堆积。`,
-    },
-    {
-      title: "今天目标",
-      body: `今天按 ${todayNew} 个新词推进，如果错题变多，就优先压新词、保复习。`,
-    },
-    {
-      title: "7天计划",
-      body: forecast.map((item) => `${item.label} ${item.count}个`).join(" / "),
-    },
+    { title: "比例说明", body: `你选的是 ${state.settings.ratio}，今天建议约复习 ${todayReviewByRatio} 个，学新词 ${todayNewByRatio} 个。` },
+    { title: "完成速度", body: `按 ${state.settings.targetDays} 天完成估算，每天建议新词约 ${suggestedNew} 个。` },
+    { title: "7天计划", body: forecast.map((item) => `${item.label} ${item.count}个`).join(" / ") },
   ].forEach((item) => {
-    const card = document.createElement("article");
-    card.className = "daily-item";
-    card.innerHTML = `<h3>${item.title}</h3><p>${item.body}</p>`;
-    els.planInsights.append(card);
+    const article = document.createElement("article");
+    article.className = "daily-item";
+    article.innerHTML = `<h3>${item.title}</h3><p>${item.body}</p>`;
+    els.planInsights.append(article);
   });
 }
 
@@ -610,16 +598,14 @@ function renderVocabList(filter = "") {
 }
 
 function renderTodaySummary() {
-  const today = todayKey();
   const items = state.dataset.entries
-    .map((entry) => ({ entry, progress: getEntryProgress(entry.id) }))
-    .map(({ entry, progress }) => ({ entry, stats: countTodayStats(progress) }))
+    .map((entry) => ({ entry, stats: countTodayStats(getEntryProgress(entry.id)) }))
     .filter(({ stats }) => stats.seen > 0);
 
   const wrongItems = items.filter(({ stats }) => stats.wrong > 0);
   const maxWrong = wrongItems.reduce((max, item) => Math.max(max, item.stats.wrong), 0);
 
-  els.summaryDate.textContent = today;
+  els.summaryDate.textContent = todayKey();
   els.todaySummaryStats.innerHTML = "";
   els.todaySummaryStats.append(
     createStatCard("今日已学", items.length, "今天做过题的单词"),
@@ -661,6 +647,7 @@ function applySettingsFromControls() {
     targetDays: Number(els.targetDaysInput.value || DEFAULT_SETTINGS.targetDays),
     dailyCap: Number(els.dailyCapInput.value || DEFAULT_SETTINGS.dailyCap),
     todayNew: Number(els.todayTargetInput.value || DEFAULT_SETTINGS.todayNew),
+    ratio: els.ratioSelect.value,
     mode: els.modeSelect.value,
     tier: els.tierSelect.value,
     timerSeconds: Number(els.timerSelect.value || DEFAULT_SETTINGS.timerSeconds),
@@ -673,21 +660,15 @@ function hydrateControls() {
   els.targetDaysInput.value = state.settings.targetDays;
   els.dailyCapInput.value = state.settings.dailyCap;
   els.todayTargetInput.value = state.settings.todayNew;
-  els.newCountInput.value = state.settings.todayNew;
+  els.ratioSelect.value = state.settings.ratio;
   els.modeSelect.value = state.settings.mode;
   els.tierSelect.value = state.settings.tier;
   els.timerSelect.value = String(state.settings.timerSeconds);
 }
 
-function startSession(speedMode = false) {
+function startSession(moreNew = false) {
   applySettingsFromControls();
-  state.speedMode = speedMode;
-  state.queue = buildStudyQueue({
-    mode: speedMode ? "synonym" : state.settings.mode,
-    newCount: Number(state.settings.todayNew),
-    tier: state.settings.tier,
-    speedMode,
-  });
+  state.queue = buildStudyQueue({ moreNew });
   state.currentIndex = 0;
   showPage(els.studyPage);
   renderCurrentCard();
@@ -695,13 +676,7 @@ function startSession(speedMode = false) {
 
 async function init() {
   state.dataset = window.VOCAB_DATA;
-  if (!state.dataset) {
-    showPage(els.studyPage);
-    els.cardEmpty.classList.remove("hidden");
-    els.studyCard.classList.add("hidden");
-    els.cardEmpty.innerHTML = "<h2>数据加载失败</h2><p>没有读取到本地词库，请确认 data/vocab-data.js 存在。</p>";
-    return;
-  }
+  if (!state.dataset) return;
 
   const localState = loadLocalState();
   state.progress = localState.progress;
@@ -726,7 +701,16 @@ async function init() {
 }
 
 els.startStudy.addEventListener("click", () => startSession(false));
-els.startSpeed.addEventListener("click", () => startSession(true));
+els.loadMoreNew.addEventListener("click", () => startSession(true));
+els.showAnswer.addEventListener("click", () => revealAnswer(state.selectedAnswer, true));
+els.nextCard.addEventListener("click", () => {
+  if (!state.questionResolved) return;
+  state.currentIndex += 1;
+  renderCurrentCard();
+});
+els.openSettings.addEventListener("click", openSettings);
+els.closeSettings.addEventListener("click", closeSettings);
+els.settingsBackdrop.addEventListener("click", closeSettings);
 els.openVocabList.addEventListener("click", () => {
   renderVocabList(els.vocabSearch.value);
   showPage(els.vocabPage);
@@ -734,12 +718,6 @@ els.openVocabList.addEventListener("click", () => {
 els.openSummaryPage.addEventListener("click", () => {
   renderTodaySummary();
   showPage(els.summaryPage);
-});
-els.showAnswer.addEventListener("click", () => revealAnswer(state.selectedAnswer, true));
-els.nextCard.addEventListener("click", () => {
-  if (!state.questionResolved) return;
-  state.currentIndex += 1;
-  renderCurrentCard();
 });
 els.backHome.addEventListener("click", () => {
   stopTimer();
@@ -751,7 +729,7 @@ els.backHome.addEventListener("click", () => {
 els.backHomeFromVocab.addEventListener("click", () => showPage(els.homePage));
 els.backHomeFromSummary.addEventListener("click", () => showPage(els.homePage));
 els.vocabSearch.addEventListener("input", (event) => renderVocabList(event.target.value));
-[els.targetDaysInput, els.dailyCapInput, els.todayTargetInput, els.modeSelect, els.tierSelect, els.timerSelect].forEach((input) => {
+[els.targetDaysInput, els.dailyCapInput, els.todayTargetInput, els.ratioSelect, els.modeSelect, els.tierSelect, els.timerSelect].forEach((input) => {
   input.addEventListener("input", () => {
     applySettingsFromControls();
     renderDashboard();

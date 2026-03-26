@@ -31,9 +31,59 @@ body {
   padding: 28px 18px 48px;
 }
 
+.compact-hero {
+  grid-template-columns: 1fr auto;
+}
+
+.hero-actions,
+.hero-home-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.icon-button {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: white;
+  font-size: 1.4rem;
+}
+
+.large-button {
+  min-width: 180px;
+  font-size: 1.08rem;
+}
+
+.settings-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+
+.settings-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(20, 18, 15, 0.38);
+}
+
+.settings-panel {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: min(560px, 100%);
+  height: 100%;
+  overflow: auto;
+  background: #fff9ef;
+  padding: 24px;
+  box-shadow: -20px 0 60px rgba(0, 0, 0, 0.16);
+}
+
 .study-page {
   min-height: 100vh;
-  padding: 24px 16px 40px;
+  padding: 16px 16px 100px;
   background:
     radial-gradient(circle at top, rgba(15, 118, 110, 0.12), transparent 30%),
     linear-gradient(180deg, #f5efe4 0%, #efe6d4 100%);
@@ -61,12 +111,12 @@ body {
 }
 
 .study-stage {
-  min-height: calc(100vh - 120px);
+  min-height: calc(100vh - 180px);
   border: 1px solid var(--line);
   border-radius: 30px;
   background: rgba(255, 249, 239, 0.92);
   box-shadow: var(--shadow);
-  padding: 28px;
+  padding: 20px;
 }
 
 .hero {
@@ -230,6 +280,24 @@ button:disabled {
 
 .study-card { display: grid; gap: 18px; }
 
+.sticky-actions {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+  background: rgba(255, 249, 239, 0.96);
+  border-top: 1px solid var(--line);
+  backdrop-filter: blur(12px);
+}
+
+.sticky-actions button {
+  min-width: 160px;
+}
+
 .vocab-list {
   display: grid;
   gap: 14px;
@@ -390,4 +458,14 @@ button:disabled {
   .panel { padding: 18px; }
   .study-stage { padding: 18px; }
   .study-header { align-items: flex-start; flex-direction: column; }
+  .sticky-actions {
+    justify-content: stretch;
+  }
+  .sticky-actions button {
+    flex: 1;
+    min-width: 0;
+  }
+  .word-line-large {
+    font-size: clamp(2.4rem, 10vw, 4.2rem);
+  }
 }
