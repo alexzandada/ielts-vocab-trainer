@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>雅思阅读词汇速背系统</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="page-shell" id="home-page">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">IELTS Reading Vocabulary Trainer</p>
+          <h1>雅思阅读词汇速背系统</h1>
+          <p class="hero-copy">
+            基于《阅读考点词真经538》的重要性排序，结合艾宾浩斯复习节奏、错题加练和同义替换测速，做成一个可以随时打开就背的网页。
+          </p>
+        </div>
+        <div class="hero-stats" id="hero-stats"></div>
+      </header>
+
+      <main class="layout">
+        <section class="panel summary-panel">
+          <div class="panel-head">
+            <h2>今日安排</h2>
+            <button class="ghost-button" id="reset-progress">重置进度</button>
+          </div>
+          <div class="summary-grid" id="summary-grid"></div>
+          <div class="daily-plan" id="daily-plan"></div>
+        </section>
+
+        <section class="panel controls-panel">
+          <div class="panel-head">
+            <h2>训练设置</h2>
+            <span class="subtle-text">系统自动判题，答后展示完整解析。</span>
+          </div>
+          <div class="control-grid">
+            <label>
+              <span>训练模式</span>
+              <select id="mode-select">
+                <option value="mixed">混合训练</option>
+                <option value="en_to_zh">英文识义</option>
+                <option value="zh_to_en">中文选词</option>
+                <option value="synonym">同义替换</option>
+              </select>
+            </label>
+            <label>
+              <span>今日新词</span>
+              <input id="new-count-input" type="number" min="5" max="60" step="1" value="12" />
+            </label>
+            <label>
+              <span>筛选范围</span>
+              <select id="tier-select">
+                <option value="all">全部</option>
+                <option value="1">只看第1类</option>
+                <option value="2">只看第2类</option>
+                <option value="3">只看第3类</option>
+                <option value="high">只看高优先级</option>
+              </select>
+            </label>
+            <label>
+              <span>每题限时</span>
+              <select id="timer-select">
+                <option value="0">不限时</option>
+                <option value="8">8 秒</option>
+                <option value="12" selected>12 秒</option>
+                <option value="20">20 秒</option>
+              </select>
+            </label>
+          </div>
+          <div class="actions-row">
+            <button class="primary-button" id="start-study">开始今日任务</button>
+            <button class="secondary-button" id="start-speed">开始同义替换测速</button>
+            <button class="ghost-button" id="open-vocab-list">全部词汇</button>
+            <button class="ghost-button" id="open-summary-page">今日汇总</button>
+          </div>
+        </section>
+
+        <section class="panel controls-panel">
+          <div class="panel-head">
+            <h2>学习计划</h2>
+            <span class="subtle-text">参考 Anki / Quizlet 一类产品的“每日上限 + 个性化计划”思路。</span>
+          </div>
+          <div class="control-grid">
+            <label>
+              <span>预计完成天数</span>
+              <input id="target-days-input" type="number" min="7" max="180" step="1" value="45" />
+            </label>
+            <label>
+              <span>每天总题量上限</span>
+              <input id="daily-cap-input" type="number" min="20" max="300" step="5" value="80" />
+            </label>
+            <label>
+              <span>今日建议新词</span>
+              <input id="today-target-input" type="number" min="5" max="60" step="1" value="12" />
+            </label>
+          </div>
+          <div class="daily-plan" id="plan-insights"></div>
+        </section>
+
+        <section class="panel insights-panel">
+          <div class="panel-head">
+            <h2>机制说明</h2>
+          </div>
+          <div class="insight-list">
+            <article>
+              <h3>艾宾浩斯复习</h3>
+              <p>默认复习节点：当天、1天、2天、4天、7天、15天、30天。答对推进，答错回到更短周期。</p>
+            </article>
+            <article>
+              <h3>非顺序出题</h3>
+              <p>不会机械按题库顺序出题，而是按重要度、错题次数、是否为彩色替换词来加权抽题。</p>
+            </article>
+            <article>
+              <h3>答后解析</h3>
+              <p>题目前只显示必要信息；答完后再统一展示中文、同义替换、排序和你的结果。</p>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="study-page hidden" id="study-page">
+      <div class="study-shell">
+        <div class="study-header">
+          <button class="ghost-button" id="back-home">返回主页</button>
+          <div class="study-header-meta">
+            <span class="chip" id="task-chip"></span>
+            <span class="chip light" id="timer-chip"></span>
+            <span class="progress-text" id="queue-progress"></span>
+          </div>
+        </div>
+
+        <section class="study-stage">
+          <div class="card-empty" id="card-empty">
+            <h2>准备开始</h2>
+            <p>系统会按“到期复习优先，再补充今日新词”的顺序生成任务。</p>
+          </div>
+
+          <div class="study-card hidden" id="study-card">
+            <div class="prompt-block prompt-block-large">
+              <div class="word-line word-line-large" id="question-main"></div>
+              <div class="hint-line" id="question-sub"></div>
+              <div class="meta-line" id="question-meta"></div>
+            </div>
+
+            <div class="option-list option-list-large" id="option-list"></div>
+            <div class="result-box hidden" id="result-box"></div>
+
+            <div class="answer-actions answer-actions-large">
+              <button class="secondary-button" id="show-answer">不会，显示答案</button>
+              <button class="ghost-button" id="next-card" disabled>下一题</button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <div class="study-page hidden" id="vocab-page">
+      <div class="study-shell">
+        <div class="study-header">
+          <button class="ghost-button" id="back-home-from-vocab">返回主页</button>
+          <div class="study-header-meta">
+            <span class="chip">全部词汇</span>
+            <span class="progress-text" id="vocab-count"></span>
+          </div>
+        </div>
+
+        <section class="study-stage">
+          <div class="panel-head">
+            <h2>词汇总览</h2>
+            <input id="vocab-search" type="search" placeholder="搜索英文、中文或同义替换" />
+          </div>
+          <div class="vocab-list" id="vocab-list"></div>
+        </section>
+      </div>
+    </div>
+
+    <div class="study-page hidden" id="summary-page">
+      <div class="study-shell">
+        <div class="study-header">
+          <button class="ghost-button" id="back-home-from-summary">返回主页</button>
+          <div class="study-header-meta">
+            <span class="chip">今日汇总</span>
+            <span class="progress-text" id="summary-date"></span>
+          </div>
+        </div>
+
+        <section class="study-stage">
+          <div class="summary-grid" id="today-summary-stats"></div>
+          <div class="panel-head">
+            <h2>今日学习明细</h2>
+          </div>
+          <div class="vocab-list" id="today-summary-list"></div>
+        </section>
+      </div>
+    </div>
+
+    <script src="./data/vocab-data.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
