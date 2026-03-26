@@ -280,23 +280,14 @@ button:disabled {
 
 .study-card { display: grid; gap: 18px; }
 
-.sticky-actions {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  gap: 24px;
+.study-actions-inline {
   justify-content: center;
-  padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
-  background: rgba(255, 249, 239, 0.96);
-  border-top: 1px solid var(--line);
-  backdrop-filter: blur(12px);
+  gap: 24px;
+  margin-top: 6px;
 }
 
-.sticky-actions button {
+.study-actions-inline button {
   min-width: 220px;
-  max-width: 280px;
 }
 
 .vocab-list {
@@ -460,13 +451,12 @@ button:disabled {
   .panel { padding: 18px; }
   .study-stage { padding: 18px; }
   .study-header { align-items: flex-start; flex-direction: column; }
-  .sticky-actions {
+  .study-actions-inline {
     justify-content: stretch;
   }
-  .sticky-actions button {
+  .study-actions-inline button {
     flex: 1;
     min-width: 0;
-    max-width: none;
   }
   .word-line-large {
     font-size: clamp(2.4rem, 10vw, 4.2rem);

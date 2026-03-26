@@ -727,6 +727,10 @@ els.backHome.addEventListener("click", () => {
   state.currentCard = null;
   state.selectedAnswer = null;
   state.questionResolved = false;
+  els.studyCard.classList.add("hidden");
+  els.cardEmpty.classList.remove("hidden");
+  els.optionList.classList.remove("hidden");
+  els.resultBox.classList.add("hidden");
   renderDashboard();
   renderPlanInsights();
   renderTodaySummary();
