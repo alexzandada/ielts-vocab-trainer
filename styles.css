@@ -286,7 +286,7 @@ button:disabled {
   right: 0;
   bottom: 0;
   display: flex;
-  gap: 12px;
+  gap: 24px;
   justify-content: center;
   padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
   background: rgba(255, 249, 239, 0.96);
@@ -295,7 +295,8 @@ button:disabled {
 }
 
 .sticky-actions button {
-  min-width: 160px;
+  min-width: 220px;
+  max-width: 280px;
 }
 
 .vocab-list {
@@ -387,6 +388,7 @@ button:disabled {
   background: #fff;
   border: 1px solid var(--line);
   line-height: 1.7;
+  min-height: 220px;
 }
 
 .result-box.correct-result {
@@ -464,6 +466,7 @@ button:disabled {
   .sticky-actions button {
     flex: 1;
     min-width: 0;
+    max-width: none;
   }
   .word-line-large {
     font-size: clamp(2.4rem, 10vw, 4.2rem);

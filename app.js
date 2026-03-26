@@ -190,6 +190,7 @@ async function pushRemoteState() {
 }
 
 function showPage(page) {
+  closeSettings();
   [els.homePage, els.studyPage, els.vocabPage, els.summaryPage].forEach((view) => view.classList.add("hidden"));
   page.classList.remove("hidden");
 }
@@ -386,6 +387,7 @@ function revealAnswer(selected, forced = false) {
 
   els.resultBox.classList.remove("hidden", "correct-result", "wrong-result");
   els.resultBox.classList.add(correct ? "correct-result" : "wrong-result");
+  els.optionList.classList.add("hidden");
   els.resultBox.innerHTML = `
     <div class="result-hero">
       <span class="result-status">${correct ? "回答正确" : "回答错误"}</span>
@@ -447,6 +449,7 @@ function renderCurrentCard() {
   els.cardEmpty.classList.add("hidden");
   els.loadMoreNew.hidden = true;
   els.studyCard.classList.remove("hidden");
+  els.optionList.classList.remove("hidden");
   els.resultBox.classList.add("hidden");
   els.resultBox.classList.remove("correct-result", "wrong-result");
   els.resultBox.innerHTML = "";
@@ -721,6 +724,9 @@ els.openSummaryPage.addEventListener("click", () => {
 });
 els.backHome.addEventListener("click", () => {
   stopTimer();
+  state.currentCard = null;
+  state.selectedAnswer = null;
+  state.questionResolved = false;
   renderDashboard();
   renderPlanInsights();
   renderTodaySummary();
