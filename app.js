@@ -1,4 +1,4 @@
-const STORAGE_KEY = "ielts-vocab-trainer-progress-v6";
+const STORAGE_KEY = "ielts-vocab-trainer-progress-v8";
 const DEFAULT_SETTINGS = {
   targetDays: 45,
   dailyCap: 80,
@@ -41,9 +41,12 @@ const els = {
   backHomeFromSummary: document.querySelector("#back-home-from-summary"),
   openVocabList: document.querySelector("#open-vocab-list"),
   openSummaryPage: document.querySelector("#open-summary-page"),
-  heroStats: document.querySelector("#hero-stats"),
   summaryGrid: document.querySelector("#summary-grid"),
   dailyPlan: document.querySelector("#daily-plan"),
+  homeOverview: document.querySelector("#home-overview"),
+  hardWordsList: document.querySelector("#hard-words-list"),
+  weekForecast: document.querySelector("#week-forecast"),
+  syncStatusChip: document.querySelector("#sync-status-chip"),
   planInsights: document.querySelector("#plan-insights"),
   modeSelect: document.querySelector("#mode-select"),
   tierSelect: document.querySelector("#tier-select"),
@@ -83,14 +86,8 @@ function normalizeText(text) {
   return String(text || "")
     .replace(/\s+/g, " ")
     .replace(/([\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])/g, "$1")
-    .replace(/\s+(?=[，。；：！？）])/g, "")
-    .replace(/（\s+/g, "（")
+    .replace(/\s+([，。；：！？）])/g, "$1")
     .trim();
-}
-
-function parseRatio(value) {
-  const [newPart, reviewPart] = String(value || "1:2").split(":").map(Number);
-  return { newPart: newPart || 1, reviewPart: reviewPart || 2 };
 }
 
 function formatMeaning(entry) {
@@ -99,11 +96,19 @@ function formatMeaning(entry) {
 
 function formatSynonyms(entry) {
   const values = (entry.synonyms || []).map(normalizeText).filter(Boolean);
-  return values.length ? values.join(" / ") : "该词条暂无同义替换记录。";
+  return values.length ? values.join(" / ") : "暂无同义替换";
 }
 
 function importanceText(entry) {
-  return entry.importanceRank ? `第${entry.importanceRank}个` : `扩展词 ${entry.bookOrder}`;
+  return entry.importanceRank ? `第${entry.importanceRank}个` : `第${entry.bookOrder}个`;
+}
+
+function parseRatio(value) {
+  const [newPart, reviewPart] = String(value || "1:2").split(":").map(Number);
+  return {
+    newPart: newPart || 1,
+    reviewPart: reviewPart || 2,
+  };
 }
 
 function getEntryProgress(entryId) {
@@ -185,6 +190,7 @@ async function pushRemoteState() {
     saveLocalState();
   } finally {
     state.sync.isSyncing = false;
+    renderSyncStatus();
   }
 }
 
@@ -204,10 +210,23 @@ function showPage(page) {
   page.classList.remove("hidden");
 }
 
+function renderSyncStatus() {
+  if (!els.syncStatusChip) return;
+  els.syncStatusChip.textContent = state.sync.status === "cloud" ? "云端已同步" : "本地缓存";
+  els.syncStatusChip.classList.toggle("light", state.sync.status !== "cloud");
+}
+
 function createStatCard(label, value, detail) {
   const card = document.createElement("div");
   card.className = "stat-card";
   card.innerHTML = `<span>${label}</span><strong>${value}</strong><p>${detail}</p>`;
+  return card;
+}
+
+function createDailyCard(title, body, extra, highlight = false) {
+  const card = document.createElement("article");
+  card.className = `daily-item${highlight ? " highlight" : ""}`;
+  card.innerHTML = `<h3>${title}</h3><p>${body}</p><p>${extra}</p>`;
   return card;
 }
 
@@ -219,8 +238,8 @@ function matchesTier(entry, tier) {
 
 function entryWeight(entry) {
   const progress = getEntryProgress(entry.id);
-  const base = entry.level === 1 ? 10 : entry.level === 2 ? 6 : 3;
-  const rankBoost = entry.importanceRank ? Math.max(0, 22 - entry.importanceRank / 6) : 0;
+  const base = entry.level === 1 ? 12 : entry.level === 2 ? 7 : 3;
+  const rankBoost = entry.importanceRank ? Math.max(0, 24 - entry.importanceRank / 5) : 0;
   const errorBoost = progress.wrong * 2 + progress.lapses * 2.5;
   const synonymBoost = (entry.synonyms || []).length ? 2 : 0;
   return base + rankBoost + errorBoost + synonymBoost;
@@ -257,18 +276,42 @@ function dueEntries(tier) {
     .sort((a, b) => entryWeight(b) - entryWeight(a));
 }
 
-function newEntries(limit, tier) {
-  const unseen = state.dataset.entries
+function unseenEntries(tier) {
+  return state.dataset.entries
     .filter((entry) => matchesTier(entry, tier))
     .filter((entry) => !getEntryProgress(entry.id).seen);
-  return weightedSample(unseen, limit);
+}
+
+function newEntries(limit, tier) {
+  return weightedSample(unseenEntries(tier), limit);
+}
+
+function getTodayTargets() {
+  const dueList = dueEntries(state.settings.tier);
+  const unseenList = unseenEntries(state.settings.tier);
+  const ratio = parseRatio(state.settings.ratio);
+  const totalParts = ratio.newPart + ratio.reviewPart;
+  const dailyCap = Number(state.settings.dailyCap);
+  const byRatioReview = Math.floor((dailyCap * ratio.reviewPart) / totalParts);
+  const reviewTarget = Math.min(dueList.length, byRatioReview);
+  const newTarget = Math.min(
+    unseenList.length,
+    Math.max(0, Math.min(Number(state.settings.todayNew), dailyCap - reviewTarget))
+  );
+
+  return {
+    dueList,
+    reviewTarget,
+    newTarget,
+    unseenCount: unseenList.length,
+  };
 }
 
 function pickDistractors(entry, count, extractor) {
   return shuffle(state.dataset.entries.filter((item) => item.id !== entry.id))
     .map(extractor)
-    .filter(Boolean)
     .map(normalizeText)
+    .filter(Boolean)
     .filter((value, index, array) => array.indexOf(value) === index)
     .slice(0, count);
 }
@@ -292,9 +335,9 @@ function buildCard(entry, selectedMode) {
       entry,
       mode,
       kind: classifyEntry(entry),
-      prompt: entry.word,
-      subPrompt: "看到英文，快速识别中文含义。",
-      metaBefore: `重要排序：${importanceText(entry)}`,
+      prompt: normalizeText(entry.word),
+      subPrompt: "看到英文，快速识别中文意思。",
+      metaBefore: `重要顺序：${importanceText(entry)}`,
       metaAfter: `同义替换：${formatSynonyms(entry)}`,
       answer: formatMeaning(entry),
       choices: shuffle([formatMeaning(entry), ...pickDistractors(entry, 3, formatMeaning)]).slice(0, 4),
@@ -307,31 +350,32 @@ function buildCard(entry, selectedMode) {
       mode,
       kind: classifyEntry(entry),
       prompt: formatMeaning(entry),
-      subPrompt: "看到中文，快速选出英文词。",
-      metaBefore: `重要排序：${importanceText(entry)}`,
+      subPrompt: "看到中文，快速选出英文单词。",
+      metaBefore: `重要顺序：${importanceText(entry)}`,
       metaAfter: `同义替换：${formatSynonyms(entry)}`,
       answer: normalizeText(entry.word),
       choices: shuffle([normalizeText(entry.word), ...pickDistractors(entry, 3, (item) => item.word)]).slice(0, 4),
     };
   }
 
-  const synonymAnswer = normalizeText((entry.synonyms || [entry.word])[0]);
+  const answer = normalizeText((entry.synonyms || [entry.word])[0]);
   const synonymPool = state.dataset.entries
-    .flatMap((item) => (item.synonyms || []).slice(0, 2))
+    .flatMap((item) => item.synonyms || [])
     .map(normalizeText)
     .filter(Boolean)
-    .filter((value) => !(entry.synonyms || []).map(normalizeText).includes(value) && value !== synonymAnswer);
+    .filter((value) => value !== answer)
+    .filter((value, index, array) => array.indexOf(value) === index);
 
   return {
     entry,
     mode: "synonym",
     kind: classifyEntry(entry),
-    prompt: entry.word,
-    subPrompt: "从替换表达中找出最贴近这个词的一项。",
-    metaBefore: `重要排序：${importanceText(entry)}`,
+    prompt: normalizeText(entry.word),
+    subPrompt: "从替换表达里选出最贴近这个词的一项。",
+    metaBefore: `重要顺序：${importanceText(entry)}`,
     metaAfter: `中文：${formatMeaning(entry)}`,
-    answer: synonymAnswer,
-    choices: shuffle([synonymAnswer, ...shuffle(synonymPool).slice(0, 3)]).slice(0, 4),
+    answer,
+    choices: shuffle([answer, ...shuffle(synonymPool).slice(0, 3)]).slice(0, 4),
   };
 }
 
@@ -353,6 +397,7 @@ function recordResult(correct) {
   progress.lastResult = correct ? "correct" : "wrong";
   progress.lastReviewedAt = new Date().toISOString();
   progress.history.push({ date: todayKey(), correct });
+
   if (correct) {
     progress.correct += 1;
     progress.streak += 1;
@@ -363,8 +408,11 @@ function recordResult(correct) {
   }
 
   const intervals = state.dataset.reviewIntervalsDays;
-  if (correct) progress.stage = Math.min(progress.stage + 1, intervals.length - 1);
-  else progress.stage = Math.max(progress.stage - 1, 0);
+  if (correct) {
+    progress.stage = Math.min(progress.stage + 1, intervals.length - 1);
+  } else {
+    progress.stage = Math.max(progress.stage - 1, 0);
+  }
 
   const dueDate = new Date();
   dueDate.setDate(dueDate.getDate() + intervals[Math.max(progress.stage, 0)]);
@@ -396,7 +444,7 @@ function revealAnswer(selected, forced = false) {
     </div>
     <div class="result-detail"><strong>中文义</strong><span>${formatMeaning(card.entry)}</span></div>
     <div class="result-detail"><strong>同义替换</strong><span>${formatSynonyms(card.entry)}</span></div>
-    <div class="result-detail"><strong>重要排序</strong><span>${importanceText(card.entry)}</span></div>
+    <div class="result-detail"><strong>重要顺序</strong><span>${importanceText(card.entry)}</span></div>
     <div class="result-detail"><strong>你的选择</strong><span>${chosen}</span></div>
   `;
 
@@ -414,7 +462,7 @@ function revealAnswer(selected, forced = false) {
   state.questionResolved = true;
   stopTimer();
   setActionState({ nextEnabled: true, answerEnabled: false });
-  renderDashboard();
+  renderHome();
   renderPlanInsights();
   renderTodaySummary();
 }
@@ -437,8 +485,15 @@ function startTimer(seconds) {
   }, 1000);
 }
 
+function modeLabel(mode) {
+  if (mode === "en_to_zh") return "英文识义";
+  if (mode === "zh_to_en") return "中文选词";
+  return "同义替换";
+}
+
 function renderCurrentCard() {
   const card = state.queue[state.currentIndex];
+
   if (!card) {
     stopTimer();
     state.currentCard = null;
@@ -460,7 +515,7 @@ function renderCurrentCard() {
   els.resultBox.innerHTML = "";
   els.resultBox.classList.remove("correct-result", "wrong-result");
 
-  els.taskChip.textContent = card.mode === "en_to_zh" ? "英文识义" : card.mode === "zh_to_en" ? "中文选词" : "同义替换";
+  els.taskChip.textContent = modeLabel(card.mode);
   els.newOldChip.textContent = card.kind;
   els.queueProgress.textContent = `第 ${state.currentIndex + 1} / ${state.queue.length} 题`;
   els.questionMain.textContent = normalizeText(card.prompt);
@@ -485,24 +540,12 @@ function renderCurrentCard() {
   startTimer(Number(state.settings.timerSeconds));
 }
 
-function getTodayTargets() {
-  const dueList = dueEntries(state.settings.tier);
-  const ratio = parseRatio(state.settings.ratio);
-  const totalParts = ratio.newPart + ratio.reviewPart;
-  const dailyCap = Number(state.settings.dailyCap);
-  const reviewTargetByRatio = Math.floor((dailyCap * ratio.reviewPart) / totalParts);
-  const reviewTarget = Math.min(dueList.length, reviewTargetByRatio);
-  const newTarget = Math.min(Number(state.settings.todayNew), Math.max(5, dailyCap - reviewTarget));
-  return { dueList, reviewTarget, newTarget };
-}
-
 function buildStudyQueue({ moreNew = false } = {}) {
   const { dueList, reviewTarget, newTarget } = getTodayTargets();
   const reviewList = moreNew ? [] : dueList.slice(0, reviewTarget);
   const newList = newEntries(newTarget, state.settings.tier);
-  return weightedSample([...reviewList, ...newList], reviewList.length + newList.length).map((entry) =>
-    buildCard(entry, state.settings.mode)
-  );
+  const queueEntries = weightedSample([...reviewList, ...newList], reviewList.length + newList.length);
+  return queueEntries.map((entry) => buildCard(entry, state.settings.mode));
 }
 
 function countTodayStats(progress) {
@@ -514,52 +557,6 @@ function countTodayStats(progress) {
   };
 }
 
-function renderDashboard() {
-  const entries = state.dataset.entries;
-  const { dueList, reviewTarget, newTarget } = getTodayTargets();
-  const learnedCount = entries.filter((entry) => getEntryProgress(entry.id).seen).length;
-  const hardEntries = entries
-    .map((entry) => ({ entry, progress: getEntryProgress(entry.id) }))
-    .filter(({ progress }) => progress.wrong > 0)
-    .sort((a, b) => b.progress.wrong - a.progress.wrong)
-    .slice(0, 4);
-
-  els.heroStats.innerHTML = "";
-  els.heroStats.append(
-    createStatCard("今日复习", reviewTarget, dueList.length ? `${dueList.length} 个到期词待复习` : "今天暂无到期复习"),
-    createStatCard("今日新词", newTarget, "今天建议的新词量"),
-    createStatCard("已学习", learnedCount, `${entries.length - learnedCount} 个还未开始`),
-    createStatCard("同步状态", state.sync.status === "cloud" ? "云端" : "本地", state.sync.lastSyncedAt ? `最近同步 ${new Date(state.sync.lastSyncedAt).toLocaleString()}` : "尚未同步"),
-  );
-
-  const reviewNames = dueList.slice(0, 8).map((entry) => entry.word);
-  const newNames = newEntries(Math.min(8, newTarget), state.settings.tier).map((entry) => entry.word);
-
-  els.dailyPlan.innerHTML = "";
-  [
-    {
-      title: "今日需复习",
-      body: `${reviewTarget} 个`,
-      extra: reviewNames.length ? reviewNames.join(" / ") : "今天没有到期复习词。",
-    },
-    {
-      title: "今日需背新词",
-      body: `${newTarget} 个`,
-      extra: newNames.length ? newNames.join(" / ") : "今天建议先以复习为主。",
-    },
-    {
-      title: "易错词汇",
-      body: hardEntries.length ? hardEntries.map((item) => item.entry.word).join(" / ") : "目前没有明显易错词",
-      extra: hardEntries.length ? "这些词会被提高抽题权重。" : "继续学习后会逐渐识别你的薄弱点。",
-    },
-  ].forEach((item) => {
-    const card = document.createElement("article");
-    card.className = "daily-item";
-    card.innerHTML = `<h3>${item.title}</h3><p>${item.body}</p><p>${item.extra}</p>`;
-    els.dailyPlan.append(card);
-  });
-}
-
 function getSevenDayForecast() {
   const forecast = [];
   for (let offset = 0; offset < 7; offset += 1) {
@@ -568,6 +565,7 @@ function getSevenDayForecast() {
     const key = day.toISOString().slice(0, 10);
     const count = state.dataset.entries.filter((entry) => getEntryProgress(entry.id).dueDate === key).length;
     forecast.push({
+      key,
       label: day.toLocaleDateString(undefined, { month: "numeric", day: "numeric", weekday: "short" }),
       count,
     });
@@ -575,55 +573,130 @@ function getSevenDayForecast() {
   return forecast;
 }
 
+function renderHome() {
+  const entries = state.dataset.entries;
+  const { dueList, reviewTarget, newTarget, unseenCount } = getTodayTargets();
+  const learnedCount = entries.filter((entry) => getEntryProgress(entry.id).seen).length;
+  const hardEntries = entries
+    .map((entry) => ({ entry, progress: getEntryProgress(entry.id) }))
+    .filter(({ progress }) => progress.wrong > 0)
+    .sort((a, b) => b.progress.wrong - a.progress.wrong || b.progress.lapses - a.progress.lapses)
+    .slice(0, 6);
+  const forecast = getSevenDayForecast();
+  const reviewPreview = dueList.slice(0, 8).map((entry) => entry.word);
+  const newPreview = newEntries(Math.min(8, newTarget), state.settings.tier).map((entry) => entry.word);
+  const todayStudied = entries.filter((entry) => countTodayStats(getEntryProgress(entry.id)).seen > 0).length;
+
+  els.summaryGrid.innerHTML = "";
+  els.summaryGrid.append(
+    createStatCard("今日复习", reviewTarget, dueList.length ? `共有 ${dueList.length} 个到期复习词` : "今天暂无到期复习"),
+    createStatCard("今日新词", newTarget, `按当前计划今天建议学 ${newTarget} 个新词`),
+    createStatCard("今日已学", todayStudied, "今天已经练过的单词数"),
+    createStatCard("累计已学", learnedCount, `还剩 ${entries.length - learnedCount} 个未开始`)
+  );
+
+  els.dailyPlan.innerHTML = "";
+  els.dailyPlan.append(
+    createDailyCard(
+      "今天先复习什么",
+      reviewTarget ? `先复习 ${reviewTarget} 个词` : "今天可以先冲新词",
+      reviewPreview.length ? reviewPreview.join(" / ") : "暂无到期复习词",
+      true
+    ),
+    createDailyCard(
+      "今天再背什么",
+      newTarget ? `再学 ${newTarget} 个新词` : "今天的新词任务已经压到最低",
+      newPreview.length ? newPreview.join(" / ") : "建议先把复习清完"
+    ),
+    createDailyCard(
+      "当前节奏",
+      `目标 ${state.settings.targetDays} 天完成，比例 ${state.settings.ratio}`,
+      `每日上限 ${state.settings.dailyCap} 题，未学 ${unseenCount} 个`
+    )
+  );
+
+  els.homeOverview.innerHTML = "";
+  [
+    `今天优先级最高的是第1类和错题词，系统不会按题库原顺序机械出题。`,
+    `答错的词会退回更短间隔，并在当前队列里插入一次短期回放。`,
+    `设置和进度都会一起同步，最近同步时间：${state.sync.lastSyncedAt ? new Date(state.sync.lastSyncedAt).toLocaleString() : "尚未同步"}`,
+  ].forEach((text) => {
+    const item = document.createElement("article");
+    item.className = "daily-item";
+    item.innerHTML = `<p>${text}</p>`;
+    els.homeOverview.append(item);
+  });
+
+  els.hardWordsList.innerHTML = "";
+  if (!hardEntries.length) {
+    const empty = document.createElement("article");
+    empty.className = "vocab-item";
+    empty.innerHTML = `<div class="subtle-text">还没有明显的易错词，继续做题后这里会越来越有参考价值。</div>`;
+    els.hardWordsList.append(empty);
+  } else {
+    hardEntries.forEach(({ entry, progress }) => {
+      const item = document.createElement("article");
+      item.className = "vocab-item";
+      item.innerHTML = `
+        <div class="vocab-item-head">
+          <div class="vocab-word">${normalizeText(entry.word)}</div>
+          <span class="chip light">错 ${progress.wrong} 次</span>
+        </div>
+        <div><strong>中文：</strong>${formatMeaning(entry)}</div>
+        <div><strong>同义替换：</strong>${formatSynonyms(entry)}</div>
+      `;
+      els.hardWordsList.append(item);
+    });
+  }
+
+  els.weekForecast.innerHTML = "";
+  forecast.forEach((item, index) => {
+    els.weekForecast.append(
+      createDailyCard(index === 0 ? "今天" : item.label, `${item.count} 个复习词到期`, item.count ? "建议优先清理复习" : "这一天压力相对轻")
+    );
+  });
+
+  renderSyncStatus();
+}
+
 function renderPlanInsights() {
-  const unseenCount = state.dataset.entries.filter((entry) => !getEntryProgress(entry.id).seen).length;
   const ratio = parseRatio(state.settings.ratio);
   const forecast = getSevenDayForecast();
+  const unseenCount = state.dataset.entries.filter((entry) => !getEntryProgress(entry.id).seen).length;
   const suggestedNew = Math.max(5, Math.ceil(unseenCount / Math.max(Number(state.settings.targetDays), 1)));
-  const todayReviewByRatio = Math.floor((Number(state.settings.dailyCap) * ratio.reviewPart) / (ratio.newPart + ratio.reviewPart));
-  const todayNewByRatio = Number(state.settings.dailyCap) - todayReviewByRatio;
+  const reviewTarget = Math.floor((Number(state.settings.dailyCap) * ratio.reviewPart) / (ratio.newPart + ratio.reviewPart));
+  const newTarget = Math.max(0, Number(state.settings.dailyCap) - reviewTarget);
 
   els.planInsights.innerHTML = "";
-  [
-    {
-      title: "比例说明",
-      body: `你选的是 ${state.settings.ratio}，今天建议约复习 ${todayReviewByRatio} 个，学新词 ${todayNewByRatio} 个。`,
-    },
-    {
-      title: "完成速度",
-      body: `按 ${state.settings.targetDays} 天完成估算，每天建议新词约 ${suggestedNew} 个。`,
-    },
-    {
-      title: "7天计划",
-      body: forecast.map((item) => `${item.label} ${item.count}个`).join(" / "),
-    },
-  ].forEach((item) => {
-    const card = document.createElement("article");
-    card.className = "daily-item";
-    card.innerHTML = `<h3>${item.title}</h3><p>${item.body}</p>`;
-    els.planInsights.append(card);
-  });
+  els.planInsights.append(
+    createDailyCard("比例说明", `你现在选的是 ${state.settings.ratio}`, `按这个比例，今天建议复习 ${reviewTarget} 个，新学 ${newTarget} 个`, true),
+    createDailyCard("目标完成天数", `${state.settings.targetDays} 天跑完当前词库`, `按这个速度建议每天至少新学 ${suggestedNew} 个`),
+    createDailyCard("7天预估", "未来一周复习量会按到期日期滚动", forecast.map((item) => `${item.label} ${item.count}个`).join(" / "))
+  );
 }
 
 function renderVocabList(filter = "") {
   const keyword = normalizeText(filter).toLowerCase();
   const list = state.dataset.entries.filter((entry) => {
     if (!keyword) return true;
-    return [entry.word, formatMeaning(entry), formatSynonyms(entry), importanceText(entry)].join(" ").toLowerCase().includes(keyword);
+    return [entry.word, formatMeaning(entry), formatSynonyms(entry), importanceText(entry)]
+      .join(" ")
+      .toLowerCase()
+      .includes(keyword);
   });
 
-  els.vocabCount.textContent = `${list.length} / ${state.dataset.entries.length} 个词条`;
+  els.vocabCount.textContent = `${list.length} / ${state.dataset.entries.length} 个词`;
   els.vocabList.innerHTML = "";
   list.forEach((entry) => {
     const item = document.createElement("article");
     item.className = "vocab-item";
     item.innerHTML = `
       <div class="vocab-item-head">
-        <div class="vocab-word">${entry.word}</div>
+        <div class="vocab-word">${normalizeText(entry.word)}</div>
         <span class="chip light">${importanceText(entry)}</span>
       </div>
-      <div><strong>中文：</strong> ${formatMeaning(entry)}</div>
-      <div><strong>同义替换：</strong> ${formatSynonyms(entry)}</div>
+      <div><strong>中文：</strong>${formatMeaning(entry)}</div>
+      <div><strong>同义替换：</strong>${formatSynonyms(entry)}</div>
     `;
     els.vocabList.append(item);
   });
@@ -640,9 +713,9 @@ function renderTodaySummary() {
   els.summaryDate.textContent = todayKey();
   els.todaySummaryStats.innerHTML = "";
   els.todaySummaryStats.append(
-    createStatCard("今日已学", items.length, "今天做过题的单词"),
-    createStatCard("今日错题", wrongItems.length, "至少错过一次"),
-    createStatCard("最高错次", maxWrong, maxWrong ? "单词单日最大错误次数" : "今天暂无错题"),
+    createStatCard("今日已学", items.length, "今天做过题的单词数"),
+    createStatCard("今日错词", wrongItems.length, "至少错过一次的单词数"),
+    createStatCard("最高错次", maxWrong, maxWrong ? "今天单词的最高单日错误次数" : "今天暂时没有错题")
   );
 
   els.todaySummaryList.innerHTML = "";
@@ -659,15 +732,14 @@ function renderTodaySummary() {
     .forEach(({ entry, stats }) => {
       const item = document.createElement("article");
       item.className = "vocab-item";
-      if (stats.wrong > 0) item.classList.add("wrong-result");
       item.innerHTML = `
         <div class="vocab-item-head">
-          <div class="vocab-word">${entry.word}</div>
-          <span class="chip light">${stats.wrong > 0 ? `易错 ${stats.wrong} 次` : "今日掌握较稳"}</span>
+          <div class="vocab-word">${normalizeText(entry.word)}</div>
+          <span class="chip light">${stats.wrong > 0 ? `错 ${stats.wrong} 次` : "今天较稳"}</span>
         </div>
-        <div><strong>中文：</strong> ${formatMeaning(entry)}</div>
-        <div><strong>同义替换：</strong> ${formatSynonyms(entry)}</div>
-        <div><strong>今日作答：</strong> ${stats.seen} 次</div>
+        <div><strong>中文：</strong>${formatMeaning(entry)}</div>
+        <div><strong>同义替换：</strong>${formatSynonyms(entry)}</div>
+        <div><strong>今日作答：</strong>${stats.seen} 次</div>
       `;
       els.todaySummaryList.append(item);
     });
@@ -702,14 +774,28 @@ function startSession(moreNew = false) {
   applySettingsFromControls();
   state.queue = buildStudyQueue({ moreNew });
   state.currentIndex = 0;
+  state.currentCard = null;
   showPage(els.studyPage);
   renderCurrentCard();
 }
 
-function forceGoHome() {
+function goHome() {
   stopTimer();
-  saveLocalState();
-  window.location.href = `${window.location.pathname}?home=1&t=${Date.now()}`;
+  state.queue = [];
+  state.currentCard = null;
+  state.currentIndex = 0;
+  state.selectedAnswer = null;
+  state.questionResolved = false;
+  els.optionList.innerHTML = "";
+  els.resultBox.innerHTML = "";
+  els.resultBox.classList.add("hidden");
+  els.studyCard.classList.add("hidden");
+  els.cardEmpty.classList.remove("hidden");
+  els.loadMoreNew.hidden = true;
+  renderHome();
+  renderPlanInsights();
+  renderTodaySummary();
+  showPage(els.homePage);
 }
 
 async function init() {
@@ -722,7 +808,7 @@ async function init() {
   state.sync.lastSyncedAt = localState.lastSyncedAt;
 
   const remoteState = await fetchRemoteState();
-  if (remoteState && remoteState.progress) {
+  if (remoteState && typeof remoteState === "object") {
     state.progress = remoteState.progress || state.progress;
     state.settings = { ...state.settings, ...(remoteState.settings || {}) };
     state.sync.status = "cloud";
@@ -731,7 +817,7 @@ async function init() {
   }
 
   hydrateControls();
-  renderDashboard();
+  renderHome();
   renderPlanInsights();
   renderVocabList();
   renderTodaySummary();
@@ -757,21 +843,24 @@ els.openSummaryPage.addEventListener("click", () => {
   renderTodaySummary();
   showPage(els.summaryPage);
 });
-els.backHome.addEventListener("click", forceGoHome);
-els.backHomeFromVocab.addEventListener("click", forceGoHome);
-els.backHomeFromSummary.addEventListener("click", forceGoHome);
+els.backHome.addEventListener("click", goHome);
+els.backHomeFromVocab.addEventListener("click", goHome);
+els.backHomeFromSummary.addEventListener("click", goHome);
 els.vocabSearch.addEventListener("input", (event) => renderVocabList(event.target.value));
+
 [els.targetDaysInput, els.dailyCapInput, els.todayTargetInput, els.ratioSelect, els.modeSelect, els.tierSelect, els.timerSelect].forEach((input) => {
   input.addEventListener("input", () => {
     applySettingsFromControls();
-    renderDashboard();
+    renderHome();
     renderPlanInsights();
   });
 });
+
 els.resetProgress.addEventListener("click", () => {
   localStorage.removeItem(STORAGE_KEY);
   state.progress = {};
-  renderDashboard();
+  saveLocalState();
+  renderHome();
   renderPlanInsights();
   renderTodaySummary();
   void pushRemoteState();

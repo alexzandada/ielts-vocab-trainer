@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=7" />
+    <link rel="stylesheet" href="./styles.css?v=8" />
   </head>
   <body>
     <div class="page-shell" id="home-page">
@@ -18,7 +18,7 @@
         <div>
           <p class="eyebrow">IELTS Reading Vocabulary Trainer</p>
           <h1>雅思阅读词汇速背系统</h1>
-          <p class="hero-copy">只保留最关键的信息：今天背什么、复习什么，点开就能背。</p>
+          <p class="hero-copy">今天先背什么、先复习什么、哪些词最容易错，一进来就能看清楚。</p>
         </div>
         <div class="hero-actions">
           <button class="icon-button" id="open-settings" aria-label="打开设置">⚙</button>
@@ -39,6 +39,30 @@
           </div>
           <div class="daily-plan" id="daily-plan"></div>
         </section>
+
+        <section class="panel controls-panel">
+          <div class="panel-head">
+            <h2>学习概览</h2>
+            <span class="chip light" id="sync-status-chip">本地</span>
+          </div>
+          <div class="insight-list" id="home-overview"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>易错词汇</h2>
+            <span class="progress-text">系统会优先提高它们的出现概率</span>
+          </div>
+          <div class="vocab-list compact-vocab-list" id="hard-words-list"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>7天计划</h2>
+            <span class="progress-text">未来一周预计到期的复习量</span>
+          </div>
+          <div class="daily-plan" id="week-forecast"></div>
+        </section>
       </main>
     </div>
 
@@ -46,7 +70,7 @@
       <div class="settings-backdrop" id="settings-backdrop"></div>
       <section class="settings-panel">
         <div class="panel-head">
-          <h2>背诵设置</h2>
+          <h2>训练设置</h2>
           <button class="ghost-button" id="close-settings">关闭</button>
         </div>
         <div class="control-grid">
@@ -181,7 +205,7 @@
       </div>
     </div>
 
-    <script src="./data/vocab-data.js?v=7"></script>
-    <script src="./app.js?v=7"></script>
+    <script src="./data/vocab-data.js?v=8"></script>
+    <script src="./app.js?v=8"></script>
   </body>
 </html>
