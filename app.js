@@ -1,4 +1,4 @@
-const STORAGE_KEY = "ielts-vocab-trainer-progress-v5";
+const STORAGE_KEY = "ielts-vocab-trainer-progress-v6";
 const DEFAULT_SETTINGS = {
   targetDays: 45,
   dailyCap: 80,
@@ -19,7 +19,6 @@ const state = {
   selectedAnswer: null,
   timerId: null,
   timerRemaining: 0,
-  speedMode: false,
   questionResolved: false,
   sync: {
     status: "local",
@@ -89,22 +88,22 @@ function normalizeText(text) {
     .trim();
 }
 
+function parseRatio(value) {
+  const [newPart, reviewPart] = String(value || "1:2").split(":").map(Number);
+  return { newPart: newPart || 1, reviewPart: reviewPart || 2 };
+}
+
 function formatMeaning(entry) {
   return normalizeText(entry.meaning);
 }
 
 function formatSynonyms(entry) {
-  const cleaned = (entry.synonyms || []).map(normalizeText).filter(Boolean);
-  return cleaned.length ? cleaned.join(" / ") : "该词条暂无同义替换记录。";
+  const values = (entry.synonyms || []).map(normalizeText).filter(Boolean);
+  return values.length ? values.join(" / ") : "该词条暂无同义替换记录。";
 }
 
 function importanceText(entry) {
   return entry.importanceRank ? `第${entry.importanceRank}个` : `扩展词 ${entry.bookOrder}`;
-}
-
-function parseRatio(value) {
-  const [newPart, reviewPart] = String(value || "1:2").split(":").map(Number);
-  return { newPart: newPart || 1, reviewPart: reviewPart || 2 };
 }
 
 function getEntryProgress(entryId) {
@@ -189,18 +188,20 @@ async function pushRemoteState() {
   }
 }
 
-function showPage(page) {
-  closeSettings();
-  [els.homePage, els.studyPage, els.vocabPage, els.summaryPage].forEach((view) => view.classList.add("hidden"));
-  page.classList.remove("hidden");
-}
-
 function openSettings() {
   els.settingsSheet.classList.remove("hidden");
 }
 
 function closeSettings() {
   els.settingsSheet.classList.add("hidden");
+}
+
+function showPage(page) {
+  closeSettings();
+  [els.homePage, els.studyPage, els.vocabPage, els.summaryPage].forEach((view) => {
+    view.classList.add("hidden");
+  });
+  page.classList.remove("hidden");
 }
 
 function createStatCard(label, value, detail) {
@@ -250,8 +251,8 @@ function dueEntries(tier) {
   return state.dataset.entries
     .filter((entry) => matchesTier(entry, tier))
     .filter((entry) => {
-      const progress = getEntryProgress(entry.id);
-      return progress.dueDate && progress.dueDate <= todayKey();
+      const dueDate = getEntryProgress(entry.id).dueDate;
+      return dueDate && dueDate <= todayKey();
     })
     .sort((a, b) => entryWeight(b) - entryWeight(a));
 }
@@ -370,7 +371,7 @@ function recordResult(correct) {
   progress.dueDate = dueDate.toISOString().slice(0, 10);
 
   if (!correct) {
-    const replay = buildCard(state.currentCard.entry, state.currentCard.mode);
+    const replay = buildCard(state.currentCard.entry, state.settings.mode);
     state.queue.splice(Math.min(state.currentIndex + 2, state.queue.length), 0, replay);
   }
 
@@ -385,9 +386,9 @@ function revealAnswer(selected, forced = false) {
   const chosen = normalizeText(selected || "未选择");
   const correct = !forced && chosen === normalizeText(card.answer);
 
+  els.optionList.classList.add("hidden");
   els.resultBox.classList.remove("hidden", "correct-result", "wrong-result");
   els.resultBox.classList.add(correct ? "correct-result" : "wrong-result");
-  els.optionList.classList.add("hidden");
   els.resultBox.innerHTML = `
     <div class="result-hero">
       <span class="result-status">${correct ? "回答正确" : "回答错误"}</span>
@@ -400,8 +401,9 @@ function revealAnswer(selected, forced = false) {
   `;
 
   els.optionList.querySelectorAll("button").forEach((button) => {
-    if (normalizeText(button.dataset.value) === normalizeText(card.answer)) button.classList.add("correct");
-    if (selected && normalizeText(button.dataset.value) === normalizeText(selected) && normalizeText(selected) !== normalizeText(card.answer)) {
+    const value = normalizeText(button.dataset.value);
+    if (value === normalizeText(card.answer)) button.classList.add("correct");
+    if (selected && value === normalizeText(selected) && value !== normalizeText(card.answer)) {
       button.classList.add("wrong");
     }
     button.disabled = true;
@@ -423,12 +425,15 @@ function startTimer(seconds) {
     els.timerChip.textContent = "不限时";
     return;
   }
+
   state.timerRemaining = seconds;
   els.timerChip.textContent = `${state.timerRemaining} 秒`;
   state.timerId = setInterval(() => {
     state.timerRemaining -= 1;
     els.timerChip.textContent = `${Math.max(state.timerRemaining, 0)} 秒`;
-    if (state.timerRemaining <= 0) revealAnswer(state.selectedAnswer, true);
+    if (state.timerRemaining <= 0) {
+      revealAnswer(state.selectedAnswer, true);
+    }
   }, 1000);
 }
 
@@ -437,8 +442,8 @@ function renderCurrentCard() {
   if (!card) {
     stopTimer();
     state.currentCard = null;
-    els.cardEmpty.classList.remove("hidden");
     els.studyCard.classList.add("hidden");
+    els.cardEmpty.classList.remove("hidden");
     els.loadMoreNew.hidden = false;
     return;
   }
@@ -446,13 +451,15 @@ function renderCurrentCard() {
   state.currentCard = card;
   state.selectedAnswer = null;
   state.questionResolved = false;
+
   els.cardEmpty.classList.add("hidden");
   els.loadMoreNew.hidden = true;
   els.studyCard.classList.remove("hidden");
   els.optionList.classList.remove("hidden");
   els.resultBox.classList.add("hidden");
-  els.resultBox.classList.remove("correct-result", "wrong-result");
   els.resultBox.innerHTML = "";
+  els.resultBox.classList.remove("correct-result", "wrong-result");
+
   els.taskChip.textContent = card.mode === "en_to_zh" ? "英文识义" : card.mode === "zh_to_en" ? "中文选词" : "同义替换";
   els.newOldChip.textContent = card.kind;
   els.queueProgress.textContent = `第 ${state.currentIndex + 1} / ${state.queue.length} 题`;
@@ -486,18 +493,14 @@ function getTodayTargets() {
   const reviewTargetByRatio = Math.floor((dailyCap * ratio.reviewPart) / totalParts);
   const reviewTarget = Math.min(dueList.length, reviewTargetByRatio);
   const newTarget = Math.min(Number(state.settings.todayNew), Math.max(5, dailyCap - reviewTarget));
-  return {
-    dueList,
-    reviewTarget,
-    newTarget,
-  };
+  return { dueList, reviewTarget, newTarget };
 }
 
 function buildStudyQueue({ moreNew = false } = {}) {
   const { dueList, reviewTarget, newTarget } = getTodayTargets();
   const reviewList = moreNew ? [] : dueList.slice(0, reviewTarget);
-  const freshList = newEntries(newTarget, state.settings.tier);
-  return weightedSample([...reviewList, ...freshList], reviewList.length + freshList.length).map((entry) =>
+  const newList = newEntries(newTarget, state.settings.tier);
+  return weightedSample([...reviewList, ...newList], reviewList.length + newList.length).map((entry) =>
     buildCard(entry, state.settings.mode)
   );
 }
@@ -514,13 +517,18 @@ function countTodayStats(progress) {
 function renderDashboard() {
   const entries = state.dataset.entries;
   const { dueList, reviewTarget, newTarget } = getTodayTargets();
-  const unseenCount = entries.filter((entry) => !getEntryProgress(entry.id).seen).length;
+  const learnedCount = entries.filter((entry) => getEntryProgress(entry.id).seen).length;
+  const hardEntries = entries
+    .map((entry) => ({ entry, progress: getEntryProgress(entry.id) }))
+    .filter(({ progress }) => progress.wrong > 0)
+    .sort((a, b) => b.progress.wrong - a.progress.wrong)
+    .slice(0, 4);
 
   els.heroStats.innerHTML = "";
   els.heroStats.append(
     createStatCard("今日复习", reviewTarget, dueList.length ? `${dueList.length} 个到期词待复习` : "今天暂无到期复习"),
     createStatCard("今日新词", newTarget, "今天建议的新词量"),
-    createStatCard("总词库", entries.length, `${entries.length - unseenCount} 个已有学习记录`),
+    createStatCard("已学习", learnedCount, `${entries.length - learnedCount} 个还未开始`),
     createStatCard("同步状态", state.sync.status === "cloud" ? "云端" : "本地", state.sync.lastSyncedAt ? `最近同步 ${new Date(state.sync.lastSyncedAt).toLocaleString()}` : "尚未同步"),
   );
 
@@ -529,14 +537,26 @@ function renderDashboard() {
 
   els.dailyPlan.innerHTML = "";
   [
-    { title: "今日需复习", body: `${reviewTarget} 个`, extra: reviewNames.length ? reviewNames.join(" / ") : "今天没有到期复习词。" },
-    { title: "今日需背新词", body: `${newTarget} 个`, extra: newNames.length ? newNames.join(" / ") : "今天建议先以复习为主。" },
-    { title: "背诵比例", body: `${state.settings.ratio}`, extra: "按这个比例安排新词与复习" },
+    {
+      title: "今日需复习",
+      body: `${reviewTarget} 个`,
+      extra: reviewNames.length ? reviewNames.join(" / ") : "今天没有到期复习词。",
+    },
+    {
+      title: "今日需背新词",
+      body: `${newTarget} 个`,
+      extra: newNames.length ? newNames.join(" / ") : "今天建议先以复习为主。",
+    },
+    {
+      title: "易错词汇",
+      body: hardEntries.length ? hardEntries.map((item) => item.entry.word).join(" / ") : "目前没有明显易错词",
+      extra: hardEntries.length ? "这些词会被提高抽题权重。" : "继续学习后会逐渐识别你的薄弱点。",
+    },
   ].forEach((item) => {
-    const article = document.createElement("article");
-    article.className = "daily-item";
-    article.innerHTML = `<h3>${item.title}</h3><p>${item.body}</p><p>${item.extra}</p>`;
-    els.dailyPlan.append(article);
+    const card = document.createElement("article");
+    card.className = "daily-item";
+    card.innerHTML = `<h3>${item.title}</h3><p>${item.body}</p><p>${item.extra}</p>`;
+    els.dailyPlan.append(card);
   });
 }
 
@@ -565,14 +585,23 @@ function renderPlanInsights() {
 
   els.planInsights.innerHTML = "";
   [
-    { title: "比例说明", body: `你选的是 ${state.settings.ratio}，今天建议约复习 ${todayReviewByRatio} 个，学新词 ${todayNewByRatio} 个。` },
-    { title: "完成速度", body: `按 ${state.settings.targetDays} 天完成估算，每天建议新词约 ${suggestedNew} 个。` },
-    { title: "7天计划", body: forecast.map((item) => `${item.label} ${item.count}个`).join(" / ") },
+    {
+      title: "比例说明",
+      body: `你选的是 ${state.settings.ratio}，今天建议约复习 ${todayReviewByRatio} 个，学新词 ${todayNewByRatio} 个。`,
+    },
+    {
+      title: "完成速度",
+      body: `按 ${state.settings.targetDays} 天完成估算，每天建议新词约 ${suggestedNew} 个。`,
+    },
+    {
+      title: "7天计划",
+      body: forecast.map((item) => `${item.label} ${item.count}个`).join(" / "),
+    },
   ].forEach((item) => {
-    const article = document.createElement("article");
-    article.className = "daily-item";
-    article.innerHTML = `<h3>${item.title}</h3><p>${item.body}</p>`;
-    els.planInsights.append(article);
+    const card = document.createElement("article");
+    card.className = "daily-item";
+    card.innerHTML = `<h3>${item.title}</h3><p>${item.body}</p>`;
+    els.planInsights.append(card);
   });
 }
 
@@ -677,6 +706,21 @@ function startSession(moreNew = false) {
   renderCurrentCard();
 }
 
+function forceGoHome() {
+  stopTimer();
+  state.currentCard = null;
+  state.selectedAnswer = null;
+  state.questionResolved = false;
+  els.studyCard.classList.add("hidden");
+  els.cardEmpty.classList.remove("hidden");
+  els.optionList.classList.remove("hidden");
+  els.resultBox.classList.add("hidden");
+  renderDashboard();
+  renderPlanInsights();
+  renderTodaySummary();
+  showPage(els.homePage);
+}
+
 async function init() {
   state.dataset = window.VOCAB_DATA;
   if (!state.dataset) return;
@@ -722,22 +766,9 @@ els.openSummaryPage.addEventListener("click", () => {
   renderTodaySummary();
   showPage(els.summaryPage);
 });
-els.backHome.addEventListener("click", () => {
-  stopTimer();
-  state.currentCard = null;
-  state.selectedAnswer = null;
-  state.questionResolved = false;
-  els.studyCard.classList.add("hidden");
-  els.cardEmpty.classList.remove("hidden");
-  els.optionList.classList.remove("hidden");
-  els.resultBox.classList.add("hidden");
-  renderDashboard();
-  renderPlanInsights();
-  renderTodaySummary();
-  showPage(els.homePage);
-});
-els.backHomeFromVocab.addEventListener("click", () => showPage(els.homePage));
-els.backHomeFromSummary.addEventListener("click", () => showPage(els.homePage));
+els.backHome.addEventListener("click", forceGoHome);
+els.backHomeFromVocab.addEventListener("click", forceGoHome);
+els.backHomeFromSummary.addEventListener("click", forceGoHome);
 els.vocabSearch.addEventListener("input", (event) => renderVocabList(event.target.value));
 [els.targetDaysInput, els.dailyCapInput, els.todayTargetInput, els.ratioSelect, els.modeSelect, els.tierSelect, els.timerSelect].forEach((input) => {
   input.addEventListener("input", () => {
