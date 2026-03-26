@@ -708,17 +708,8 @@ function startSession(moreNew = false) {
 
 function forceGoHome() {
   stopTimer();
-  state.currentCard = null;
-  state.selectedAnswer = null;
-  state.questionResolved = false;
-  els.studyCard.classList.add("hidden");
-  els.cardEmpty.classList.remove("hidden");
-  els.optionList.classList.remove("hidden");
-  els.resultBox.classList.add("hidden");
-  renderDashboard();
-  renderPlanInsights();
-  renderTodaySummary();
-  showPage(els.homePage);
+  saveLocalState();
+  window.location.href = `${window.location.pathname}?home=1&t=${Date.now()}`;
 }
 
 async function init() {

@@ -434,11 +434,21 @@ button:disabled {
 }
 
 #new-old-chip {
-  font-size: 1rem;
+  font-size: 1.16rem;
   font-weight: 700;
-  padding: 10px 16px;
-  background: rgba(15, 118, 110, 0.16);
+  padding: 12px 18px;
+  background: rgba(15, 118, 110, 0.18);
   color: var(--accent);
+  border: 1px solid rgba(15, 118, 110, 0.2);
+}
+
+.summary-panel {
+  background:
+    linear-gradient(180deg, rgba(255, 249, 239, 0.96), rgba(248, 241, 227, 0.94));
+}
+
+.daily-item {
+  background: linear-gradient(180deg, #fffaf2, #fff6e9);
 }
 
 .daily-item.highlight {
