@@ -434,6 +434,14 @@ button:disabled {
   margin-top: 8px;
 }
 
+.result-detail-wide strong {
+  color: var(--text);
+}
+
+.result-detail-wide span {
+  font-weight: 600;
+}
+
 .chip {
   display: inline-flex;
   align-items: center;

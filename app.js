@@ -118,6 +118,7 @@ function getEntryProgress(entryId) {
       dueDate: null,
       seen: false,
       mastered: false,
+      masteredAt: null,
       correct: 0,
       wrong: 0,
       streak: 0,
@@ -352,6 +353,10 @@ function addDaysFromToday(days) {
   return dueDate.toISOString().slice(0, 10);
 }
 
+function tomorrowKey() {
+  return addDaysFromToday(1);
+}
+
 function enqueueReplay(entry, offset = 2) {
   const replay = buildCard(entry, state.settings.mode);
   const insertAt = Math.min(state.currentIndex + offset, state.queue.length);
@@ -453,6 +458,7 @@ function recordResult(correct) {
 
     if (progress.learningCorrectStreak >= 2) {
       progress.mastered = true;
+      progress.masteredAt = todayKey();
       progress.stage = 0;
       progress.dueDate = addDaysFromToday(intervals[0]);
     } else {
@@ -473,6 +479,30 @@ function recordResult(correct) {
 
   saveLocalState();
   void pushRemoteState();
+  return {
+    wasMastered,
+    isMastered: progress.mastered,
+    learningCorrectStreak: progress.learningCorrectStreak,
+    dueDate: progress.dueDate,
+    correct,
+  };
+}
+
+function getResultStatusMessage(summary) {
+  if (!summary.wasMastered && summary.isMastered) {
+    return `已掌握：今天已连续答对 2 次，明天开始正式复习。`;
+  }
+
+  if (!summary.wasMastered) {
+    const remaining = Math.max(0, 2 - summary.learningCorrectStreak);
+    return `学习中：今天还需连续答对 ${remaining} 次，系统会在后面的题目里再问你。`;
+  }
+
+  if (summary.correct) {
+    return `已掌握：这次答对后已进入下一轮复习，预计 ${summary.dueDate} 再见。`;
+  }
+
+  return `复习降级：这次答错后已加入当前错词回放，预计 ${summary.dueDate} 再次正式复习。`;
 }
 
 function revealAnswer(selected, forced = false) {
@@ -506,10 +536,15 @@ function revealAnswer(selected, forced = false) {
   });
 
   els.questionMeta.textContent = card.metaAfter;
-  recordResult(correct);
+  const reviewSummary = recordResult(correct);
   state.questionResolved = true;
   stopTimer();
   setActionState({ nextEnabled: true, answerEnabled: false });
+  const statusMessage = getResultStatusMessage(reviewSummary);
+  els.resultBox.insertAdjacentHTML(
+    "beforeend",
+    `<div class="result-detail result-detail-wide"><strong>当前状态</strong><span>${statusMessage}</span></div>`
+  );
   renderHome();
   renderPlanInsights();
   renderTodaySummary();
@@ -625,6 +660,13 @@ function renderHome() {
   const entries = state.dataset.entries;
   const { dueList, reviewTarget, newTarget, unseenCount } = getTodayTargets();
   const learnedCount = entries.filter((entry) => getEntryProgress(entry.id).seen).length;
+  const today = todayKey();
+  const totalAttemptsToday = entries.reduce((sum, entry) => sum + countTodayStats(getEntryProgress(entry.id)).seen, 0);
+  const masteredToday = entries.filter((entry) => getEntryProgress(entry.id).masteredAt === today).length;
+  const tomorrowReviewCount = entries.filter((entry) => {
+    const progress = getEntryProgress(entry.id);
+    return progress.mastered && progress.dueDate === tomorrowKey();
+  }).length;
   const hardEntries = entries
     .map((entry) => ({ entry, progress: getEntryProgress(entry.id) }))
     .filter(({ progress }) => progress.wrong > 0)
@@ -639,8 +681,10 @@ function renderHome() {
   els.summaryGrid.append(
     createStatCard("今日复习", reviewTarget, dueList.length ? `共有 ${dueList.length} 个到期复习词` : "今天暂无到期复习"),
     createStatCard("今日新词", newTarget, `按当前计划今天建议学 ${newTarget} 个新词`),
-    createStatCard("今日已学", todayStudied, "今天已经练过的单词数"),
-    createStatCard("累计已学", learnedCount, `还剩 ${entries.length - learnedCount} 个未开始`)
+    createStatCard("今日做题", totalAttemptsToday, "今天实际完成的题目总数"),
+    createStatCard("今日掌握", masteredToday, "今天真正进入正式复习的新词数"),
+    createStatCard("明日复习", tomorrowReviewCount, "明天预计进入正式复习的词数"),
+    createStatCard("累计已学", learnedCount, `已接触 ${todayStudied} 个今日练过词，还剩 ${entries.length - learnedCount} 个未开始`)
   );
 
   els.dailyPlan.innerHTML = "";
