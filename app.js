@@ -117,12 +117,16 @@ function getEntryProgress(entryId) {
       stage: -1,
       dueDate: null,
       seen: false,
+      mastered: false,
       correct: 0,
       wrong: 0,
       streak: 0,
       lapses: 0,
       lastResult: null,
       lastReviewedAt: null,
+      learningDate: null,
+      learningCorrectStreak: 0,
+      learningSeen: 0,
       history: [],
     };
   }
@@ -242,7 +246,8 @@ function entryWeight(entry) {
   const rankBoost = entry.importanceRank ? Math.max(0, 24 - entry.importanceRank / 5) : 0;
   const errorBoost = progress.wrong * 2 + progress.lapses * 2.5;
   const synonymBoost = (entry.synonyms || []).length ? 2 : 0;
-  return base + rankBoost + errorBoost + synonymBoost;
+  const learningBoost = progress.mastered ? 0 : 12 + progress.learningCorrectStreak * 4;
+  return base + rankBoost + errorBoost + synonymBoost + learningBoost;
 }
 
 function weightedPick(items) {
@@ -270,32 +275,32 @@ function dueEntries(tier) {
   return state.dataset.entries
     .filter((entry) => matchesTier(entry, tier))
     .filter((entry) => {
-      const dueDate = getEntryProgress(entry.id).dueDate;
-      return dueDate && dueDate <= todayKey();
+      const progress = getEntryProgress(entry.id);
+      return progress.mastered && progress.dueDate && progress.dueDate <= todayKey();
     })
     .sort((a, b) => entryWeight(b) - entryWeight(a));
 }
 
-function unseenEntries(tier) {
+function learningEntries(tier) {
   return state.dataset.entries
     .filter((entry) => matchesTier(entry, tier))
-    .filter((entry) => !getEntryProgress(entry.id).seen);
+    .filter((entry) => !getEntryProgress(entry.id).mastered);
 }
 
 function newEntries(limit, tier) {
-  return weightedSample(unseenEntries(tier), limit);
+  return weightedSample(learningEntries(tier), limit);
 }
 
 function getTodayTargets() {
   const dueList = dueEntries(state.settings.tier);
-  const unseenList = unseenEntries(state.settings.tier);
+  const learningList = learningEntries(state.settings.tier);
   const ratio = parseRatio(state.settings.ratio);
   const totalParts = ratio.newPart + ratio.reviewPart;
   const dailyCap = Number(state.settings.dailyCap);
   const byRatioReview = Math.floor((dailyCap * ratio.reviewPart) / totalParts);
   const reviewTarget = Math.min(dueList.length, byRatioReview);
   const newTarget = Math.min(
-    unseenList.length,
+    learningList.length,
     Math.max(0, Math.min(Number(state.settings.todayNew), dailyCap - reviewTarget))
   );
 
@@ -303,7 +308,7 @@ function getTodayTargets() {
     dueList,
     reviewTarget,
     newTarget,
-    unseenCount: unseenList.length,
+    unseenCount: learningList.length,
   };
 }
 
@@ -324,7 +329,33 @@ function pickMode(entry, selectedMode) {
 }
 
 function classifyEntry(entry) {
-  return getEntryProgress(entry.id).seen ? "复习词" : "新词";
+  return getEntryProgress(entry.id).mastered ? "复习词" : "新词";
+}
+
+function refreshLearningStateForToday(progress) {
+  const today = todayKey();
+  if (progress.learningDate !== today) {
+    progress.learningDate = today;
+    progress.learningCorrectStreak = 0;
+    progress.learningSeen = 0;
+  }
+}
+
+function formalReviewIntervals() {
+  const intervals = (state.dataset.reviewIntervalsDays || []).filter((days) => days > 0);
+  return intervals.length ? intervals : [1, 2, 4, 7, 15, 30];
+}
+
+function addDaysFromToday(days) {
+  const dueDate = new Date();
+  dueDate.setDate(dueDate.getDate() + days);
+  return dueDate.toISOString().slice(0, 10);
+}
+
+function enqueueReplay(entry, offset = 2) {
+  const replay = buildCard(entry, state.settings.mode);
+  const insertAt = Math.min(state.currentIndex + offset, state.queue.length);
+  state.queue.splice(insertAt, 0, replay);
 }
 
 function buildCard(entry, selectedMode) {
@@ -393,6 +424,11 @@ function setActionState({ nextEnabled = false, answerEnabled = true } = {}) {
 
 function recordResult(correct) {
   const progress = getEntryProgress(state.currentCard.entry.id);
+  const entry = state.currentCard.entry;
+  const wasMastered = progress.mastered;
+  const intervals = formalReviewIntervals();
+
+  refreshLearningStateForToday(progress);
   progress.seen = true;
   progress.lastResult = correct ? "correct" : "wrong";
   progress.lastReviewedAt = new Date().toISOString();
@@ -407,20 +443,32 @@ function recordResult(correct) {
     progress.lapses += 1;
   }
 
-  const intervals = state.dataset.reviewIntervalsDays;
-  if (correct) {
-    progress.stage = Math.min(progress.stage + 1, intervals.length - 1);
+  if (!wasMastered) {
+    progress.learningSeen += 1;
+    if (correct) {
+      progress.learningCorrectStreak += 1;
+    } else {
+      progress.learningCorrectStreak = 0;
+    }
+
+    if (progress.learningCorrectStreak >= 2) {
+      progress.mastered = true;
+      progress.stage = 0;
+      progress.dueDate = addDaysFromToday(intervals[0]);
+    } else {
+      progress.mastered = false;
+      progress.stage = -1;
+      progress.dueDate = null;
+      enqueueReplay(entry, correct ? 3 : 2);
+    }
   } else {
-    progress.stage = Math.max(progress.stage - 1, 0);
-  }
-
-  const dueDate = new Date();
-  dueDate.setDate(dueDate.getDate() + intervals[Math.max(progress.stage, 0)]);
-  progress.dueDate = dueDate.toISOString().slice(0, 10);
-
-  if (!correct) {
-    const replay = buildCard(state.currentCard.entry, state.settings.mode);
-    state.queue.splice(Math.min(state.currentIndex + 2, state.queue.length), 0, replay);
+    if (correct) {
+      progress.stage = Math.min(Math.max(progress.stage, 0) + 1, intervals.length - 1);
+    } else {
+      progress.stage = Math.max(Math.max(progress.stage, 0) - 1, 0);
+      enqueueReplay(entry, 2);
+    }
+    progress.dueDate = addDaysFromToday(intervals[progress.stage]);
   }
 
   saveLocalState();
